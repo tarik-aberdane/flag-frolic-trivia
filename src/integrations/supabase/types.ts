@@ -14,7 +14,95 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      game_rooms: {
+        Row: {
+          blue_score: number
+          code: string
+          created_at: string
+          game_duration: number
+          id: string
+          max_players: number
+          name: string
+          red_score: number
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          blue_score?: number
+          code?: string
+          created_at?: string
+          game_duration?: number
+          id?: string
+          max_players?: number
+          name: string
+          red_score?: number
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          blue_score?: number
+          code?: string
+          created_at?: string
+          game_duration?: number
+          id?: string
+          max_players?: number
+          name?: string
+          red_score?: number
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
+      room_players: {
+        Row: {
+          has_flag: boolean
+          id: string
+          is_frozen: boolean
+          joined_at: string
+          player_name: string
+          pos_x: number
+          pos_y: number
+          pos_z: number
+          room_id: string
+          session_id: string
+          team: string
+        }
+        Insert: {
+          has_flag?: boolean
+          id?: string
+          is_frozen?: boolean
+          joined_at?: string
+          player_name: string
+          pos_x?: number
+          pos_y?: number
+          pos_z?: number
+          room_id: string
+          session_id: string
+          team: string
+        }
+        Update: {
+          has_flag?: boolean
+          id?: string
+          is_frozen?: boolean
+          joined_at?: string
+          player_name?: string
+          pos_x?: number
+          pos_y?: number
+          pos_z?: number
+          room_id?: string
+          session_id?: string
+          team?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_players_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "game_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
