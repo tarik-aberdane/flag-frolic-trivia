@@ -13,6 +13,10 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        pixel: ["'Press Start 2P'", "monospace"],
+        sans: ["Inter", "sans-serif"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -56,6 +60,18 @@ export default {
           "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
+        },
+        team: {
+          red: "hsl(var(--team-red))",
+          "red-light": "hsl(var(--team-red-light))",
+          blue: "hsl(var(--team-blue))",
+          "blue-light": "hsl(var(--team-blue-light))",
+        },
+        game: {
+          bg: "hsl(var(--game-bg))",
+          field: "hsl(var(--game-field))",
+          obstacle: "hsl(var(--obstacle))",
+          flag: "hsl(var(--flag-gold))",
         },
       },
       borderRadius: {
