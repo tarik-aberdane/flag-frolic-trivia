@@ -7,16 +7,17 @@ function createWindow() {
     height: 800,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      devTools: true // Aseguramos que estén habilitadas
     }
   });
 
-  // Intentamos cargar el archivo desde la carpeta dist
-  win.loadFile(path.join(__dirname, 'dist/index.html'));
+  // ESTA LÍNEA ABRIRÁ LA CONSOLA AUTOMÁTICAMENTE
+  win.webContents.openDevTools();
+
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  win.loadFile(indexPath).catch(err => console.error(err));
 }
 
 app.whenReady().then(createWindow);
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+// ... resto del código igual
