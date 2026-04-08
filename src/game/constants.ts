@@ -58,3 +58,6 @@ export const OBSTACLES: ObstacleData[] = [
   { pos: [-70, 2, 70], size: [5, 4, 5], color: "#555" },
   { pos: [70, 2, -70], size: [5, 4, 5], color: "#555" },
 ];
+
+// --- CONEXIÓN AL SERVIDOR DEL INSTITUTO ---
+export const WS_SERVER_URL = "ws://172.24.112.11:2567";
