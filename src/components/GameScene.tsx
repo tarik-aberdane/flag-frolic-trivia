@@ -3,8 +3,8 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Sky } from "@react-three/drei";
 import * as THREE from "three";
 import { supabase } from "@/integrations/supabase/client";
-import { useKeyboard } from "@/hooks/useKeyboard";
 import { useMouseLook } from "@/hooks/useMouseLook";
+import { useInputHandler } from "@/hooks/useInputHandler";
 import GameMap from "@/components/GameMap";
 import PlayerMesh from "@/components/PlayerMesh";
 import FlagMesh from "@/components/FlagMesh";
@@ -14,13 +14,15 @@ import ProximityPrompt from "@/components/ProximityPrompt";
 import VictoryOverlay from "@/components/VictoryOverlay";
 import VictoryCelebration from "@/components/VictoryCelebration";
 import ThirdPersonCamera from "@/components/ThirdPersonCamera";
+import PlayerController from "@/components/PlayerController";
 import { getRandomQuestion, SMXQuestion } from "@/game/questions";
 import {
-  MAP_SIZE, HALF_MAP, PLAYER_SPEED, CAPTURE_DISTANCE, TAG_DISTANCE,
+  HALF_MAP, CAPTURE_DISTANCE, TAG_DISTANCE,
   RED_FLAG_POS, BLUE_FLAG_POS, RED_BASE, BLUE_BASE,
-  BROADCAST_INTERVAL, OBSTACLES, GAME_DURATION,
+  BROADCAST_INTERVAL, GAME_DURATION,
 } from "@/game/constants";
 
+/* ─── Types ─── */
 interface RemotePlayer {
   id: string;
   session_id: string;
@@ -48,11 +50,11 @@ interface GameSceneProps {
   onLeave: () => void;
 }
 
-/* ─── Movement & rendering inside Canvas ─── */
+/* ─── Inner 3D world (runs inside Canvas) ─── */
 function GameWorld({
   sessionId, myPlayerId, roomId, team, playerName,
-  remotePlayers, myPos, myHasFlag, inDuel, nearFlag, nearBase,
-  showCelebration, celebrationPos,
+  remotePlayers, myPos, myHasFlag, inDuel,
+  nearFlag, nearBase, showCelebration, celebrationPos,
   yaw, pitch,
 }: {
   sessionId: string; myPlayerId: string; roomId: string;
@@ -65,76 +67,36 @@ function GameWorld({
   yaw: React.MutableRefObject<number>;
   pitch: React.MutableRefObject<number>;
 }) {
-  const keys = useKeyboard();
-  const lastBroadcast = useRef(0);
+  const { keys } = useInputHandler();
+  const headBob = useRef(0);
 
-  const collidesObstacle = useCallback((x: number, z: number) => {
-    const r = 1.2;
-    for (const o of OBSTACLES) {
-      const [ox, , oz] = o.pos;
-      const [sx, , sz] = o.size;
-      if (Math.abs(x - ox) < sx / 2 + r && Math.abs(z - oz) < sz / 2 + r) return true;
-    }
-    return false;
-  }, []);
-
-  useFrame((_, delta) => {
-    if (inDuel) return;
-    const k = keys.current;
-    const speed = PLAYER_SPEED * delta * 60;
-    
-    // Movement relative to camera yaw
-    const angle = yaw.current;
-    let dx = 0, dz = 0;
-    if (k.forward) { dx -= Math.sin(angle) * speed; dz -= Math.cos(angle) * speed; }
-    if (k.backward) { dx += Math.sin(angle) * speed; dz += Math.cos(angle) * speed; }
-    if (k.left) { dx -= Math.cos(angle) * speed; dz += Math.sin(angle) * speed; }
-    if (k.right) { dx += Math.cos(angle) * speed; dz -= Math.sin(angle) * speed; }
-
-    if (dx !== 0 || dz !== 0) {
-      const len = Math.sqrt(dx * dx + dz * dz);
-      dx = (dx / len) * speed;
-      dz = (dz / len) * speed;
-      const nx = Math.max(-HALF_MAP + 2, Math.min(HALF_MAP - 2, myPos.current.x + dx));
-      const nz = Math.max(-HALF_MAP + 2, Math.min(HALF_MAP - 2, myPos.current.z + dz));
-      if (!collidesObstacle(nx, nz)) {
-        myPos.current.x = nx;
-        myPos.current.z = nz;
-      }
-    }
-
-    // Broadcast
-    const now = Date.now();
-    if (now - lastBroadcast.current > BROADCAST_INTERVAL) {
-      lastBroadcast.current = now;
-      supabase.channel(`room:${roomId}`).send({
-        type: "broadcast", event: "player_move",
-        payload: {
-          session_id: sessionId, player_id: myPlayerId, player_name: playerName,
-          team, x: myPos.current.x, y: myPos.current.y, z: myPos.current.z,
-          has_flag: myHasFlag, is_frozen: false,
-        },
-      });
-    }
-  });
-
-  // Flag visibility
-  const redFlagShow = !remotePlayers.some(p => p.team === "blue" && p.has_flag) && !(team === "blue" && myHasFlag);
-  const blueFlagShow = !remotePlayers.some(p => p.team === "red" && p.has_flag) && !(team === "red" && myHasFlag);
+  const onHeadBob = useCallback((bob: number) => { headBob.current = bob; }, []);
 
   return (
     <>
-      <ThirdPersonCamera target={myPos} yaw={yaw} pitch={pitch} />
+      <ThirdPersonCamera target={myPos} yaw={yaw} pitch={pitch} headBob={headBob} />
+      <PlayerController
+        myPos={myPos} yaw={yaw} keys={keys}
+        disabled={inDuel}
+        onHeadBob={onHeadBob}
+      />
+      <BroadcastLoop
+        myPos={myPos} sessionId={sessionId} myPlayerId={myPlayerId}
+        playerName={playerName} team={team} roomId={roomId} myHasFlag={myHasFlag}
+        inDuel={inDuel}
+      />
+
       <Sky sunPosition={[100, 50, 100]} />
       <ambientLight intensity={0.4} />
       <directionalLight position={[50, 80, 30]} intensity={1} castShadow />
       <hemisphereLight args={["#87ceeb", "#2d5a3d", 0.3]} />
       <GameMap />
 
-      <FlagMesh position={[RED_FLAG_POS.x, RED_FLAG_POS.y, RED_FLAG_POS.z]} team="red" visible={redFlagShow} />
-      <FlagMesh position={[BLUE_FLAG_POS.x, BLUE_FLAG_POS.y, BLUE_FLAG_POS.z]} team="blue" visible={blueFlagShow} />
+      <FlagMesh position={[RED_FLAG_POS.x, RED_FLAG_POS.y, RED_FLAG_POS.z]} team="red"
+        visible={!remotePlayers.some(p => p.team === "blue" && p.has_flag) && !(team === "blue" && myHasFlag)} />
+      <FlagMesh position={[BLUE_FLAG_POS.x, BLUE_FLAG_POS.y, BLUE_FLAG_POS.z]} team="blue"
+        visible={!remotePlayers.some(p => p.team === "red" && p.has_flag) && !(team === "red" && myHasFlag)} />
 
-      {/* Proximity glow ring on flag/base when near */}
       {nearFlag && !myHasFlag && (
         <mesh position={[team === "red" ? BLUE_FLAG_POS.x : RED_FLAG_POS.x, 0.15, team === "red" ? BLUE_FLAG_POS.z : RED_FLAG_POS.z]}>
           <ringGeometry args={[3, 4, 32]} />
@@ -166,6 +128,33 @@ function GameWorld({
   );
 }
 
+/* ─── Broadcast component (sends position to channel) ─── */
+function BroadcastLoop({ myPos, sessionId, myPlayerId, playerName, team, roomId, myHasFlag, inDuel }: {
+  myPos: React.MutableRefObject<THREE.Vector3>;
+  sessionId: string; myPlayerId: string; playerName: string;
+  team: "red" | "blue"; roomId: string; myHasFlag: boolean; inDuel: boolean;
+}) {
+  const lastBroadcast = useRef(0);
+
+  useFrame(() => {
+    if (inDuel) return;
+    const now = Date.now();
+    if (now - lastBroadcast.current > BROADCAST_INTERVAL) {
+      lastBroadcast.current = now;
+      supabase.channel(`room:${roomId}`).send({
+        type: "broadcast", event: "player_move",
+        payload: {
+          session_id: sessionId, player_id: myPlayerId, player_name: playerName,
+          team, x: myPos.current.x, y: myPos.current.y, z: myPos.current.z,
+          has_flag: myHasFlag, is_frozen: false,
+        },
+      });
+    }
+  });
+
+  return null;
+}
+
 /* ─── Main scene wrapper ─── */
 export default function GameScene({ sessionId, myPlayerId, roomId, team, playerName, onLeave }: GameSceneProps) {
   const startPos = team === "red" ? RED_BASE : BLUE_BASE;
@@ -185,7 +174,6 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const { yaw, pitch, requestLock } = useMouseLook();
 
-  // E key listener
   useEffect(() => {
     const down = (e: KeyboardEvent) => { if (e.key.toLowerCase() === "e") setEPressed(true); };
     const up = (e: KeyboardEvent) => { if (e.key.toLowerCase() === "e") setEPressed(false); };
@@ -194,7 +182,6 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, []);
 
-  // Timer
   useEffect(() => {
     if (gameOver) return;
     const iv = setInterval(() => {
@@ -203,7 +190,6 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
     return () => clearInterval(iv);
   }, [gameOver]);
 
-  // Realtime channel
   useEffect(() => {
     const channel = supabase.channel(`room:${roomId}`, { config: { broadcast: { self: false } } });
 
@@ -228,31 +214,19 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
       .on("broadcast", { event: "player_leave" }, ({ payload }) => {
         setRemotePlayers(prev => prev.filter(p => p.session_id !== payload.session_id));
       })
-      // Duel system
       .on("broadcast", { event: "duel_start" }, ({ payload }) => {
         if (payload.player_a === sessionId || payload.player_b === sessionId) {
           const opSession = payload.player_a === sessionId ? payload.player_b : payload.player_a;
           const opName = payload.player_a === sessionId ? payload.name_b : payload.name_a;
-          setDuel({
-            question: payload.question,
-            opponentName: opName,
-            opponentSession: opSession,
-            resolved: false,
-          });
+          setDuel({ question: payload.question, opponentName: opName, opponentSession: opSession, resolved: false });
         }
       })
       .on("broadcast", { event: "duel_answer" }, ({ payload }) => {
         if (payload.answerer !== sessionId && duel) {
-          // Opponent answered
           if (payload.correct) {
-            // Opponent was correct first => I lose
             setDuel(prev => prev ? { ...prev, resolved: true, resolvedResult: "lost" } : null);
-            setTimeout(() => {
-              sendToBase();
-              setDuel(null);
-            }, 1500);
+            setTimeout(() => { sendToBase(); setDuel(null); }, 1500);
           } else {
-            // Opponent was wrong => I win
             setDuel(prev => prev ? { ...prev, resolved: true, resolvedResult: "won" } : null);
             setTimeout(() => setDuel(null), 1500);
           }
@@ -273,7 +247,6 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
     setMyHasFlag(false);
   }, [team]);
 
-  // Game logic loop
   useEffect(() => {
     if (gameOver || duel) return;
     const iv = setInterval(() => {
@@ -281,29 +254,22 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
       const enemyFlagPos = team === "red" ? BLUE_FLAG_POS : RED_FLAG_POS;
       const myBase = team === "red" ? RED_BASE : BLUE_BASE;
 
-      // Proximity checks
       const distToFlag = Math.sqrt((pos.x - enemyFlagPos.x) ** 2 + (pos.z - enemyFlagPos.z) ** 2);
       const distToBase = Math.sqrt((pos.x - myBase.x) ** 2 + (pos.z - myBase.z) ** 2);
       setNearFlag(distToFlag < CAPTURE_DISTANCE + 2 && !myHasFlag);
       setNearBase(distToBase < CAPTURE_DISTANCE + 2 && myHasFlag);
 
-      // Flag pickup with E
       if (!myHasFlag && distToFlag < CAPTURE_DISTANCE && ePressed) {
         const teammateHasFlag = remotePlayers.some(p => p.team === team && p.has_flag);
-        if (!teammateHasFlag) {
-          setMyHasFlag(true);
-          setEPressed(false);
-        }
+        if (!teammateHasFlag) { setMyHasFlag(true); setEPressed(false); }
       }
 
-      // Flag delivery with E
       if (myHasFlag && distToBase < CAPTURE_DISTANCE && ePressed) {
         const newScores = { ...scores, [team]: scores[team] + 1 };
         setScores(newScores);
         setMyHasFlag(false);
         setEPressed(false);
 
-        // Victory effects
         setCelebrationPos([pos.x, pos.y, pos.z]);
         setShowCelebration(true);
         setShowVictoryOverlay(true);
@@ -319,30 +285,19 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         });
       }
 
-      // Tag / Duel detection
       const inEnemyTerritory = team === "red" ? pos.x > 0 : pos.x < 0;
       if (inEnemyTerritory && !duel) {
         for (const enemy of remotePlayers) {
           if (enemy.team === team || enemy.is_frozen) continue;
           const d = Math.sqrt((pos.x - enemy.pos.x) ** 2 + (pos.z - enemy.pos.z) ** 2);
           if (d < TAG_DISTANCE) {
-            // Initiate duel — only lower session_id initiates to avoid double
             if (sessionId < enemy.session_id) {
               const q = getRandomQuestion();
               channelRef.current?.send({
                 type: "broadcast", event: "duel_start",
-                payload: {
-                  player_a: sessionId, player_b: enemy.session_id,
-                  name_a: playerName, name_b: enemy.player_name,
-                  question: q,
-                },
+                payload: { player_a: sessionId, player_b: enemy.session_id, name_a: playerName, name_b: enemy.player_name, question: q },
               });
-              setDuel({
-                question: q,
-                opponentName: enemy.player_name,
-                opponentSession: enemy.session_id,
-                resolved: false,
-              });
+              setDuel({ question: q, opponentName: enemy.player_name, opponentSession: enemy.session_id, resolved: false });
             }
             break;
           }
@@ -353,16 +308,10 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
   }, [myHasFlag, remotePlayers, scores, team, roomId, gameOver, duel, ePressed, sessionId, playerName]);
 
   const handleDuelAnswer = useCallback((correct: boolean) => {
-    // Broadcast my answer
-    channelRef.current?.send({
-      type: "broadcast", event: "duel_answer",
-      payload: { answerer: sessionId, correct },
-    });
-
+    channelRef.current?.send({ type: "broadcast", event: "duel_answer", payload: { answerer: sessionId, correct } });
     if (!correct) {
       setTimeout(() => { sendToBase(); setDuel(null); }, 1000);
     } else {
-      // Wait for opponent or close
       setTimeout(() => setDuel(null), 1500);
     }
   }, [sessionId, sendToBase]);
@@ -402,12 +351,9 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
 
       {duel && (
         <DuelModal
-          question={duel.question}
-          opponentName={duel.opponentName}
-          onAnswer={handleDuelAnswer}
-          timeLimit={15}
-          resolved={duel.resolved}
-          resolvedResult={duel.resolvedResult}
+          question={duel.question} opponentName={duel.opponentName}
+          onAnswer={handleDuelAnswer} timeLimit={15}
+          resolved={duel.resolved} resolvedResult={duel.resolvedResult}
         />
       )}
 
@@ -434,8 +380,8 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
       </div>
 
       <div className="fixed bottom-4 right-4 z-40 text-xs text-muted-foreground bg-card/80 px-3 py-2 rounded-lg">
-        <p>WASD: Mover | Ratón: Cámara</p>
-        <p>E: Recoger/Entregar bandera</p>
+        <p>WASD: Mover | Shift: Sprint | Espacio: Saltar</p>
+        <p>Ratón: Cámara | E: Recoger/Entregar bandera</p>
         <p className="text-muted-foreground/60">Click para activar cámara</p>
         {myHasFlag && <p className="text-accent font-bold">⚑ ¡Llevas la bandera!</p>}
       </div>
