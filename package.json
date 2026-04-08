@@ -1,6 +1,5 @@
 {
   "name": "flag-frolic-trivia",
-  "private": true,
   "version": "1.0.0",
   "description": "Trivia de banderas multijugador",
   "author": "Tarik",
@@ -8,7 +7,6 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
     "electron:build": "electron-builder"
   },
   "dependencies": {
@@ -80,7 +78,7 @@
   },
   "build": {
     "appId": "com.tarik.flagfrolic",
-    "productName": "Flag Frolic Trivia",
+    "productName": "FlagFrolic",
     "directories": {
       "output": "dist_electron"
     },
