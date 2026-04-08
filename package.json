@@ -1,5 +1,6 @@
 {
   "name": "flag-frolic-trivia",
+  "private": true,
   "version": "1.0.0",
   "description": "Trivia de banderas multijugador",
   "author": "Tarik",
@@ -7,6 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "preview": "vite preview",
     "electron:build": "electron-builder"
   },
   "dependencies": {
@@ -74,7 +76,8 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
-    "vite": "^5.4.19"
+    "vite": "^5.4.19",
+    "lovable-tagger": "^1.1.13"
   },
   "build": {
     "appId": "com.tarik.flagfrolic",
@@ -91,6 +94,7 @@
     },
     "linux": {
       "target": "AppImage"
-    }
+    },
+    "asar": true
   }
 }
