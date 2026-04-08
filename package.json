@@ -1,16 +1,14 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "flag-frolic-trivia",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:dev": "vite build --mode development",
-    "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "electron:build": "electron-builder"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -63,6 +61,7 @@
     "react-router-dom": "^6.30.1",
     "recharts": "^2.15.4",
     "sonner": "^1.7.4",
+    "socket.io-client": "^4.7.5",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.170.0",
@@ -71,27 +70,28 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
     "@eslint/js": "^9.32.0",
-    "@playwright/test": "^1.57.0",
-    "@tailwindcss/typography": "^0.5.16",
-    "@testing-library/jest-dom": "^6.6.0",
-    "@testing-library/react": "^16.0.0",
-    "@types/node": "^22.16.5",
-    "@types/react": "^18.3.23",
-    "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react-swc": "^3.11.0",
-    "autoprefixer": "^10.4.21",
-    "eslint": "^9.32.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.20",
-    "globals": "^15.15.0",
-    "jsdom": "^20.0.3",
-    "lovable-tagger": "^1.1.13",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.38.0",
-    "vite": "^5.4.19",
-    "vitest": "^3.2.4"
+    "vite": "^5.4.19"
+  },
+  "build": {
+    "appId": "com.tarik.flagfrolic",
+    "productName": "Flag Frolic Trivia",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "dist/**/*",
+      "main.js"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }
