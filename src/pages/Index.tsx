@@ -12,7 +12,7 @@ const PlaceholderIndex = () => {
 };
 
 import { io } from "socket.io-client";
-const socket = io("http://TU_IP_DE_DEBIAN:3000");
+const socket = io("http://172.24.199.207:3000");
 
 const Index = PlaceholderIndex;
 
