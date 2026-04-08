@@ -11,6 +11,9 @@ const PlaceholderIndex = () => {
   );
 };
 
+import { io } from "socket.io-client";
+const socket = io("http://TU_IP_DE_DEBIAN:3000");
+
 const Index = PlaceholderIndex;
 
 export default Index;
