@@ -1,7 +1,12 @@
-import MapSelector from './MapSelector';
+// 1. Cambia la importación
+import { HashRouter as Router, Routes, Route } from "react-router-dom"; 
 
-// ... other imports and code
-
-<Route path="/map-select" element={<MapSelector />} />
-
-// Ensure the route is placed correctly between /lobby and /game/:roomId
+// 2. Asegúrate de que tu componente principal use <Router> (que ahora es HashRouter)
+const App = () => (
+  <Router>
+    <Routes>
+      <Route path="/" element={<Index />} />
+      {/* Tus otras rutas */}
+    </Routes>
+  </Router>
+);
