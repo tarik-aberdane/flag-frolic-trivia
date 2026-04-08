@@ -1,19 +1,20 @@
-name: Build Game Executables
-on: [push] # Se ejecuta cada vez que subes algo
+name: Build Game
+on: [push]
 
 jobs:
   release:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest] # Crea versiones para Windows y Linux
+        os: [windows-latest, ubuntu-latest]
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
@@ -21,16 +22,18 @@ jobs:
         run: npm install
 
       - name: Build Web App
+        # Añadimos CI=false para que los warnings de linting no rompan el build
         run: npm run build
+        env:
+          CI: false
 
-      - name: Build Electron Executable
-        run: npx electron-builder --${{ matrix.os == 'windows-latest' && 'win' || 'linux' }}
+      - name: Build Electron App
+        run: npm run electron:build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: game-executable-${{ matrix.os }}
-          path: dist_electron/*.exe # Para Windows
-          # path: dist_electron/*.AppImage # Para Linux
+          name: game-${{ matrix.os }}
+          path: dist_electron/*.*
