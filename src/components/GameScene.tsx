@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { Sky } from "@react-three/drei";
 import * as THREE from "three";
 import { supabase } from "@/integrations/supabase/client";
