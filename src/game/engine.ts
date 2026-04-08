@@ -4,16 +4,40 @@ import {
   BASE_RED, BASE_BLUE, OBSTACLES, GAME_DURATION,
 } from "./types";
 
+// --- CONFIGURACIÓN DEL SERVIDOR DEL INSTITUTO ---
+const SOCKET_URL = 'ws://172.24.112.11:2567';
+const socket = new WebSocket(SOCKET_URL);
+
+socket.onopen = () => console.log("🚀 CONECTADO AL SERVIDOR 30VS30");
+socket.onerror = (err) => console.error("Error de conexión al servidor:", err);
+
+// Estado global para guardar las posiciones de otros jugadores
+let remotePlayersData: Record<number, Position> = {};
+
+socket.onmessage = (event) => {
+  try {
+    const data = JSON.parse(event.data);
+    if (data.type === 'remoteMove') {
+      // Guardamos la posición que nos llega de otros PCs
+      remotePlayersData[data.id] = data.pos;
+    }
+  } catch (e) {
+    console.error("Error procesando mensaje del servidor", e);
+  }
+};
+
 export function createInitialState(numPlayers: number): GameState {
   const players: Player[] = [];
 
-  // Red team: player 0 (human WASD), player 1 (AI or human)
-  players.push(createPlayer(0, "red", false, { x: 80, y: CANVAS_H / 2 - 40 }));
-  players.push(createPlayer(1, "red", numPlayers < 3, { x: 80, y: CANVAS_H / 2 + 40 }));
+  // Creamos 30 jugadores rojos
+  for (let i = 0; i < 30; i++) {
+    players.push(createPlayer(i, "red", i !== 0, { x: 50, y: (CANVAS_H / 31) * (i + 1) }));
+  }
 
-  // Blue team: player 2 (human arrows), player 3 (AI or human)
-  players.push(createPlayer(2, "blue", numPlayers < 2, { x: CANVAS_W - 80, y: CANVAS_H / 2 - 40 }));
-  players.push(createPlayer(3, "blue", numPlayers < 4, { x: CANVAS_W - 80, y: CANVAS_H / 2 + 40 }));
+  // Creamos 30 jugadores azules
+  for (let i = 30; i < 60; i++) {
+    players.push(createPlayer(i, "blue", true, { x: CANVAS_W - 50, y: (CANVAS_H / 31) * (i - 29) }));
+  }
 
   return {
     players,
@@ -33,6 +57,45 @@ function createPlayer(id: number, team: Team, isAI: boolean, pos: Position): Pla
   return { id, team, pos: { ...pos }, hasFlag: false, isAI, frozen: false, frozenUntil: 0, speed: PLAYER_SPEED };
 }
 
+export function movePlayer(p: Player, dx: number, dy: number, obstacles: Obstacle[]) {
+  if (p.frozen) return;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return;
+  
+  const nx = p.pos.x + (dx / len) * p.speed;
+  const ny = p.pos.y + (dy / len) * p.speed;
+  
+  const clampX = Math.max(PLAYER_R, Math.min(CANVAS_W - PLAYER_R, nx));
+  const clampY = Math.max(PLAYER_R, Math.min(CANVAS_H - PLAYER_R, ny));
+  
+  if (!collidesObstacle(clampX, clampY, PLAYER_R, obstacles)) {
+    p.pos.x = clampX;
+    p.pos.y = clampY;
+
+    // ENVIAR POSICIÓN AL SERVIDOR (Solo si somos el jugador principal, ej: ID 0)
+    if (p.id === 0 && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'remoteMove',
+        id: p.id,
+        pos: p.pos,
+        team: p.team
+      }));
+    }
+  }
+}
+
+// Esta función debe llamarse en cada frame para actualizar a los enemigos
+export function syncRemotePlayers(players: Player[]) {
+  players.forEach(p => {
+    if (remotePlayersData[p.id]) {
+      p.pos.x = remotePlayersData[p.id].x;
+      p.pos.y = remotePlayersData[p.id].y;
+    }
+  });
+}
+
+// --- EL RESTO DE FUNCIONES SE QUEDAN IGUAL ---
+
 export function getBasePos(team: Team): Position {
   return team === "red" ? { ...BASE_RED } : { ...BASE_BLUE };
 }
@@ -48,32 +111,24 @@ export function collidesObstacle(x: number, y: number, r: number, obstacles: Obs
   return false;
 }
 
-export function movePlayer(p: Player, dx: number, dy: number, obstacles: Obstacle[]) {
-  if (p.frozen) return;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len === 0) return;
-  const nx = p.pos.x + (dx / len) * p.speed;
-  const ny = p.pos.y + (dy / len) * p.speed;
-  const clampX = Math.max(PLAYER_R, Math.min(CANVAS_W - PLAYER_R, nx));
-  const clampY = Math.max(PLAYER_R, Math.min(CANVAS_H - PLAYER_R, ny));
-  if (!collidesObstacle(clampX, clampY, PLAYER_R, obstacles)) {
-    p.pos.x = clampX;
-    p.pos.y = clampY;
-  }
-}
-
 export function dist(a: Position, b: Position): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
 export function updateAI(p: Player, state: GameState) {
   if (!p.isAI || p.frozen) return;
+  // Si tenemos datos remotos para este ID, no usamos la IA, usamos el socket
+  if (remotePlayersData[p.id]) {
+    p.pos.x = remotePlayersData[p.id].x;
+    p.pos.y = remotePlayersData[p.id].y;
+    return;
+  }
+  
   const enemyFlag = state.flags.find(f => f.team !== p.team)!;
   const base = getBasePos(p.team);
   const target = p.hasFlag ? base : enemyFlag.pos;
   const dx = target.x - p.pos.x;
   const dy = target.y - p.pos.y;
-  // Add slight randomness
   const rx = dx + (Math.random() - 0.5) * 20;
   const ry = dy + (Math.random() - 0.5) * 20;
   movePlayer(p, rx, ry, state.obstacles);
@@ -82,7 +137,6 @@ export function updateAI(p: Player, state: GameState) {
 export function checkCollisions(state: GameState): { attacker: Player; defender: Player } | null {
   for (const p of state.players) {
     if (p.frozen) continue;
-    // Check flag pickup
     for (const f of state.flags) {
       if (f.team !== p.team && f.atBase && dist(p.pos, f.pos) < PLAYER_R + FLAG_R) {
         f.atBase = false;
@@ -90,7 +144,6 @@ export function checkCollisions(state: GameState): { attacker: Player; defender:
         p.hasFlag = true;
       }
     }
-    // Check flag capture (bring enemy flag to own base)
     if (p.hasFlag) {
       const base = getBasePos(p.team);
       if (dist(p.pos, base) < PLAYER_R + FLAG_R) {
@@ -102,11 +155,9 @@ export function checkCollisions(state: GameState): { attacker: Player; defender:
         ef.pos = getBasePos(ef.team);
       }
     }
-    // Check player-vs-player (enemy territory tag)
     for (const e of state.players) {
       if (e.team === p.team || e.frozen || p.frozen) continue;
       if (dist(p.pos, e.pos) < PLAYER_R * 2) {
-        // The player in enemy territory is the defender
         const pInEnemy = isInEnemyTerritory(p);
         const eInEnemy = isInEnemyTerritory(e);
         if (pInEnemy && !eInEnemy) {
