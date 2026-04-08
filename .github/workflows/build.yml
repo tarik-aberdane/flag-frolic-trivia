@@ -19,15 +19,17 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        # Añadimos el flag para saltar errores de versiones incompatibles entre librerías
+        run: npm install --legacy-peer-deps
 
       - name: Build Web App
-        # Añadimos CI=false para que los warnings de linting no rompan el build
+        # CI: false evita que el build se detenga por simples advertencias (warnings)
         run: npm run build
         env:
           CI: false
 
       - name: Build Electron App
+        # Esto genera los ejecutables (.exe y .AppImage)
         run: npm run electron:build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
