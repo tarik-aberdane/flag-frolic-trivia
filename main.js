@@ -7,15 +7,16 @@ function createWindow() {
     height: 800,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js') // Por si lo necesitas luego
     }
   });
 
-  // Usamos path.join para que funcione igual en Windows y Linux
-  win.loadFile(path.join(__dirname, 'dist/index.html'));
+  // Intentamos cargar el archivo con una ruta absoluta sólida
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  win.loadFile(indexPath);
 
-  // OPCIONAL: Descomenta la línea de abajo para que se abran las herramientas 
-  // de desarrollador automáticamente y ver si hay errores ocultos
+  // Descomenta esto para ver errores si sigue sin abrir:
   // win.webContents.openDevTools();
 }
 
