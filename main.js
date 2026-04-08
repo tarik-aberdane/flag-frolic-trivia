@@ -14,6 +14,10 @@ function createWindow() {
     }
   });
 
+  // Esta es la forma más compatible de cargar el archivo en AppImage y Windows
+  win.loadFile(path.join(__dirname, 'dist/index.html'));
+}
+
   // Intentamos cargar la ruta absoluta de forma más segura
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   
