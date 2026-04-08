@@ -135,7 +135,6 @@ function BroadcastLoop({ myPos, sessionId, myPlayerId, playerName, team, roomId,
   team: "red" | "blue"; roomId: string; myHasFlag: boolean; inDuel: boolean;
 }) {
   const lastBroadcast = useRef(0);
-  const { useFrame } = require("@react-three/fiber");
 
   useFrame(() => {
     if (inDuel) return;
