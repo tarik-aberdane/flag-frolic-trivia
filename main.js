@@ -1,8 +1,5 @@
-import { app, BrowserWindow } from 'electron';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const { app, BrowserWindow } = require('electron');
+const path = require('path');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -14,18 +11,12 @@ function createWindow() {
     }
   });
 
-  // Esta es la forma más compatible de cargar el archivo en AppImage y Windows
+  // Usamos path.join para que funcione igual en Windows y Linux
   win.loadFile(path.join(__dirname, 'dist/index.html'));
-}
 
-  // Intentamos cargar la ruta absoluta de forma más segura
-  const indexPath = path.join(__dirname, 'dist', 'index.html');
-  
-  win.loadFile(indexPath).catch(err => {
-    console.error("No se pudo cargar el archivo:", err);
-    // Si falla, intentamos una ruta alternativa común en Linux
-    win.loadURL(`file://${path.join(process.cwd(), 'resources/app/dist/index.html')}`);
-  });
+  // OPCIONAL: Descomenta la línea de abajo para que se abran las herramientas 
+  // de desarrollador automáticamente y ver si hay errores ocultos
+  // win.webContents.openDevTools();
 }
 
 app.whenReady().then(createWindow);
