@@ -14,8 +14,14 @@ function createWindow() {
     }
   });
 
-  // Importante: Cargamos el archivo que genera Vite
-  win.loadFile(path.join(__dirname, 'dist/index.html'));
+  // Intentamos cargar la ruta absoluta de forma más segura
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  
+  win.loadFile(indexPath).catch(err => {
+    console.error("No se pudo cargar el archivo:", err);
+    // Si falla, intentamos una ruta alternativa común en Linux
+    win.loadURL(`file://${path.join(process.cwd(), 'resources/app/dist/index.html')}`);
+  });
 }
 
 app.whenReady().then(createWindow);
