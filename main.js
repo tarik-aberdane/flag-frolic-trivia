@@ -1,31 +1,27 @@
-import { app, BrowserWindow } from 'electron';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+// CAMBIA BrowserRouter por HashRouter
+import { HashRouter as Router, Routes, Route } from "react-router-dom"; 
+import Index from "./pages/Index";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const queryClient = new QueryClient();
 
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true
-    }
-  });
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      {/* Usa Router (que ahora es HashRouter) */}
+      <Router>
+        <Routes>
+          <Route path="/" element={<Index />} />
+          {/* Si tienes más rutas, déjalas igual */}
+        </Routes>
+      </Router>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
 
-  // Intentamos cargar la ruta absoluta de forma más segura
-  const indexPath = path.join(__dirname, 'dist', 'index.html');
-  
-  win.loadFile(indexPath).catch(err => {
-    console.error("No se pudo cargar el archivo:", err);
-    // Si falla, intentamos una ruta alternativa común en Linux
-    win.loadURL(`file://${path.join(process.cwd(), 'resources/app/dist/index.html')}`);
-  });
-}
-
-app.whenReady().then(createWindow);
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+export default App;
