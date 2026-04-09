@@ -10,16 +10,17 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      nodeIntegration: false,
+      nodeIntegration: false, // Por seguridad
       contextIsolation: true,
     },
   });
 
-  if (app.isPackaged) {
-    win.loadFile(path.join(__dirname, 'dist/index.html'));
-  } else {
-    win.loadURL('http://localhost:5173');
-  }
+  // Carga el archivo desde la carpeta dist
+  win.loadFile(path.join(__dirname, 'dist/index.html'));
 }
 
 app.whenReady().then(createWindow);
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
