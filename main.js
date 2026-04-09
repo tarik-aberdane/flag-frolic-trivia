@@ -6,18 +6,29 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      devTools: true // Aseguramos que estén habilitadas
-    }
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
   });
 
-  // ESTA LÍNEA ABRIRÁ LA CONSOLA AUTOMÁTICAMENTE
-  win.webContents.openDevTools();
-
+  // Intentamos cargar el archivo local que genera Vite
   const indexPath = path.join(__dirname, 'dist', 'index.html');
-  win.loadFile(indexPath).catch(err => console.error(err));
+  
+  win.loadFile(indexPath).catch((err) => {
+    console.error("No se pudo cargar el archivo:", err);
+    // Si falla el archivo local, intenta cargar la web como respaldo
+    win.loadURL('https://flag-frolic-trivia.lovable.app');
+  });
 }
 
-app.whenReady().then(createWindow);
-// ... resto del código igual
+app.whenReady().then(() => {
+  createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
