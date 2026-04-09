@@ -15,7 +15,6 @@ function createWindow() {
     },
   });
 
-  // Esto carga el juego correctamente en producción
   if (app.isPackaged) {
     win.loadFile(path.join(__dirname, 'dist/index.html'));
   } else {
@@ -23,14 +22,4 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+app.whenReady().then(createWindow);
