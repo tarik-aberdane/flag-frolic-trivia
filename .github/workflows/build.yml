@@ -16,20 +16,19 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # Actualizamos a la 22 para evitar avisos de depreciación
 
       - name: Install dependencies
-        # Añadimos el flag para saltar errores de versiones incompatibles entre librerías
+        # EL CAMBIO CLAVE: Forzamos la instalación ignorando conflictos de peer deps
         run: npm install --legacy-peer-deps
 
       - name: Build Web App
-        # CI: false evita que el build se detenga por simples advertencias (warnings)
+        # CI: false ignora warnings de código que podrían detener el build
         run: npm run build
         env:
           CI: false
 
       - name: Build Electron App
-        # Esto genera los ejecutables (.exe y .AppImage)
         run: npm run electron:build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
