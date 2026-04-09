@@ -10,6 +10,7 @@ export default function GamePage() {
   const team = (searchParams.get("team") || "red") as "red" | "blue";
   const playerName = decodeURIComponent(searchParams.get("name") || "Jugador");
   const sessionId = searchParams.get("session") || "";
+  const characterId = searchParams.get("char") || "soldier";
 
   if (!roomId || !playerId || !sessionId) {
     return (
@@ -31,6 +32,7 @@ export default function GamePage() {
       roomId={roomId}
       team={team}
       playerName={playerName}
+      characterId={characterId}
       onLeave={() => navigate("/")}
     />
   );

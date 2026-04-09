@@ -9,13 +9,17 @@ import GameMap from "@/components/GameMap";
 import PlayerMesh from "@/components/PlayerMesh";
 import FlagMesh from "@/components/FlagMesh";
 import ScoreBoard from "@/components/ScoreBoard";
+import StaminaBar from "@/components/StaminaBar";
 import DuelModal from "@/components/DuelModal";
 import ProximityPrompt from "@/components/ProximityPrompt";
 import VictoryOverlay from "@/components/VictoryOverlay";
 import VictoryCelebration from "@/components/VictoryCelebration";
 import ThirdPersonCamera from "@/components/ThirdPersonCamera";
 import PlayerController from "@/components/PlayerController";
+import PowerUp3D from "@/components/PowerUp3D";
 import { getRandomQuestion, SMXQuestion } from "@/game/questions";
+import { getCharacterById, CharacterDef } from "@/game/characters";
+import { createPowerUps, checkPowerUpPickup, PowerUpInstance, SPEED_BOOST_DURATION, SPEED_BOOST_MULTIPLIER } from "@/game/powerups";
 import {
   HALF_MAP, CAPTURE_DISTANCE, TAG_DISTANCE,
   RED_FLAG_POS, BLUE_FLAG_POS, RED_BASE, BLUE_BASE,
@@ -29,6 +33,7 @@ interface RemotePlayer {
   player_name: string;
   team: "red" | "blue";
   pos: THREE.Vector3;
+  targetPos: THREE.Vector3; // for interpolation
   has_flag: boolean;
   is_frozen: boolean;
 }
@@ -47,18 +52,20 @@ interface GameSceneProps {
   roomId: string;
   team: "red" | "blue";
   playerName: string;
+  characterId: string;
   onLeave: () => void;
 }
 
-/* ─── Inner 3D world (runs inside Canvas) ─── */
+/* ─── Inner 3D world ─── */
 function GameWorld({
-  sessionId, myPlayerId, roomId, team, playerName,
+  sessionId, myPlayerId, roomId, team, playerName, character,
   remotePlayers, myPos, myHasFlag, inDuel,
   nearFlag, nearBase, showCelebration, celebrationPos,
-  yaw, pitch,
+  yaw, pitch, stamina, speedBoost, onStaminaChange,
+  powerUps,
 }: {
   sessionId: string; myPlayerId: string; roomId: string;
-  team: "red" | "blue"; playerName: string;
+  team: "red" | "blue"; playerName: string; character: CharacterDef;
   remotePlayers: RemotePlayer[];
   myPos: React.MutableRefObject<THREE.Vector3>;
   myHasFlag: boolean; inDuel: boolean;
@@ -66,19 +73,30 @@ function GameWorld({
   showCelebration: boolean; celebrationPos: [number, number, number];
   yaw: React.MutableRefObject<number>;
   pitch: React.MutableRefObject<number>;
+  stamina: React.MutableRefObject<number>;
+  speedBoost: React.MutableRefObject<number>;
+  onStaminaChange: (v: number) => void;
+  powerUps: PowerUpInstance[];
 }) {
   const { keys } = useInputHandler();
   const headBob = useRef(0);
-
   const onHeadBob = useCallback((bob: number) => { headBob.current = bob; }, []);
+
+  // Interpolate remote players each frame
+  useFrame(() => {
+    remotePlayers.forEach(p => {
+      p.pos.lerp(p.targetPos, 0.1);
+    });
+  });
 
   return (
     <>
       <ThirdPersonCamera target={myPos} yaw={yaw} pitch={pitch} headBob={headBob} />
       <PlayerController
         myPos={myPos} yaw={yaw} keys={keys}
-        disabled={inDuel}
-        onHeadBob={onHeadBob}
+        disabled={inDuel} character={character}
+        stamina={stamina} speedBoost={speedBoost}
+        onHeadBob={onHeadBob} onStaminaChange={onStaminaChange}
       />
       <BroadcastLoop
         myPos={myPos} sessionId={sessionId} myPlayerId={myPlayerId}
@@ -110,6 +128,11 @@ function GameWorld({
         </mesh>
       )}
 
+      {/* Power-ups */}
+      {powerUps.map(pu => (
+        <PowerUp3D key={pu.id} position={pu.position} type={pu.type} active={pu.active} />
+      ))}
+
       <VictoryCelebration position={celebrationPos} active={showCelebration} />
 
       <PlayerMesh
@@ -128,7 +151,7 @@ function GameWorld({
   );
 }
 
-/* ─── Broadcast component (sends position to channel) ─── */
+/* ─── Broadcast component ─── */
 function BroadcastLoop({ myPos, sessionId, myPlayerId, playerName, team, roomId, myHasFlag, inDuel }: {
   myPos: React.MutableRefObject<THREE.Vector3>;
   sessionId: string; myPlayerId: string; playerName: string;
@@ -156,9 +179,14 @@ function BroadcastLoop({ myPos, sessionId, myPlayerId, playerName, team, roomId,
 }
 
 /* ─── Main scene wrapper ─── */
-export default function GameScene({ sessionId, myPlayerId, roomId, team, playerName, onLeave }: GameSceneProps) {
+export default function GameScene({ sessionId, myPlayerId, roomId, team, playerName, characterId, onLeave }: GameSceneProps) {
+  const character = getCharacterById(characterId);
   const startPos = team === "red" ? RED_BASE : BLUE_BASE;
   const myPos = useRef(new THREE.Vector3(startPos.x + (Math.random() - 0.5) * 10, 1, startPos.z + (Math.random() - 0.5) * 10));
+  const stamina = useRef(character.maxStamina);
+  const speedBoost = useRef(1.0);
+  const [staminaDisplay, setStaminaDisplay] = useState(character.maxStamina);
+  const [isSprinting, setIsSprinting] = useState(false);
   const [remotePlayers, setRemotePlayers] = useState<RemotePlayer[]>([]);
   const [myHasFlag, setMyHasFlag] = useState(false);
   const [scores, setScores] = useState({ red: 0, blue: 0 });
@@ -171,9 +199,11 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebrationPos, setCelebrationPos] = useState<[number, number, number]>([0, 1, 0]);
   const [showVictoryOverlay, setShowVictoryOverlay] = useState(false);
+  const [powerUps, setPowerUps] = useState<PowerUpInstance[]>(() => createPowerUps(6));
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const { yaw, pitch, requestLock } = useMouseLook();
 
+  // E key handler
   useEffect(() => {
     const down = (e: KeyboardEvent) => { if (e.key.toLowerCase() === "e") setEPressed(true); };
     const up = (e: KeyboardEvent) => { if (e.key.toLowerCase() === "e") setEPressed(false); };
@@ -182,6 +212,7 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, []);
 
+  // Timer
   useEffect(() => {
     if (gameOver) return;
     const iv = setInterval(() => {
@@ -190,6 +221,7 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
     return () => clearInterval(iv);
   }, [gameOver]);
 
+  // Supabase channel
   useEffect(() => {
     const channel = supabase.channel(`room:${roomId}`, { config: { broadcast: { self: false } } });
 
@@ -198,14 +230,18 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         if (payload.session_id === sessionId) return;
         setRemotePlayers(prev => {
           const idx = prev.findIndex(p => p.session_id === payload.session_id);
-          const entry: RemotePlayer = {
+          const targetPos = new THREE.Vector3(payload.x, payload.y, payload.z);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], targetPos, has_flag: payload.has_flag, is_frozen: payload.is_frozen || false };
+            return next;
+          }
+          return [...prev, {
             id: payload.player_id, session_id: payload.session_id,
             player_name: payload.player_name, team: payload.team,
-            pos: new THREE.Vector3(payload.x, payload.y, payload.z),
+            pos: targetPos.clone(), targetPos,
             has_flag: payload.has_flag, is_frozen: payload.is_frozen || false,
-          };
-          if (idx >= 0) { const next = [...prev]; next[idx] = entry; return next; }
-          return [...prev, entry];
+          }];
         });
       })
       .on("broadcast", { event: "flag_captured" }, ({ payload }) => {
@@ -247,6 +283,7 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
     setMyHasFlag(false);
   }, [team]);
 
+  // Game logic loop
   useEffect(() => {
     if (gameOver || duel) return;
     const iv = setInterval(() => {
@@ -259,11 +296,13 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
       setNearFlag(distToFlag < CAPTURE_DISTANCE + 2 && !myHasFlag);
       setNearBase(distToBase < CAPTURE_DISTANCE + 2 && myHasFlag);
 
+      // Flag pickup
       if (!myHasFlag && distToFlag < CAPTURE_DISTANCE && ePressed) {
         const teammateHasFlag = remotePlayers.some(p => p.team === team && p.has_flag);
         if (!teammateHasFlag) { setMyHasFlag(true); setEPressed(false); }
       }
 
+      // Flag delivery
       if (myHasFlag && distToBase < CAPTURE_DISTANCE && ePressed) {
         const newScores = { ...scores, [team]: scores[team] + 1 };
         setScores(newScores);
@@ -285,6 +324,22 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         });
       }
 
+      // Power-up pickup
+      const { pickedUp, updated } = checkPowerUpPickup(pos.x, pos.z, powerUps);
+      if (pickedUp) {
+        setPowerUps(updated);
+        speedBoost.current = SPEED_BOOST_MULTIPLIER;
+        setTimeout(() => { speedBoost.current = 1.0; }, SPEED_BOOST_DURATION);
+      } else {
+        // Still check respawns
+        const now = Date.now();
+        const hasRespawn = powerUps.some(pu => !pu.active && pu.respawnAt > 0 && now >= pu.respawnAt);
+        if (hasRespawn) {
+          setPowerUps(prev => prev.map(pu => (!pu.active && pu.respawnAt > 0 && now >= pu.respawnAt) ? { ...pu, active: true, respawnAt: 0 } : pu));
+        }
+      }
+
+      // Duel detection
       const inEnemyTerritory = team === "red" ? pos.x > 0 : pos.x < 0;
       if (inEnemyTerritory && !duel) {
         for (const enemy of remotePlayers) {
@@ -303,9 +358,12 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
           }
         }
       }
+
+      // Update sprinting state for UI
+      setIsSprinting(stamina.current < character.maxStamina && stamina.current > 0);
     }, 100);
     return () => clearInterval(iv);
-  }, [myHasFlag, remotePlayers, scores, team, roomId, gameOver, duel, ePressed, sessionId, playerName]);
+  }, [myHasFlag, remotePlayers, scores, team, roomId, gameOver, duel, ePressed, sessionId, playerName, powerUps, character]);
 
   const handleDuelAnswer = useCallback((correct: boolean) => {
     channelRef.current?.send({ type: "broadcast", event: "duel_answer", payload: { answerer: sessionId, correct } });
@@ -349,6 +407,14 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         redPlayers={redCount} bluePlayers={blueCount} roomCode="" myTeam={team}
       />
 
+      <StaminaBar current={staminaDisplay} max={character.maxStamina} isSprinting={isSprinting} />
+
+      {speedBoost.current > 1 && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-40 px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-300 text-xs font-bold animate-pulse">
+          ⚡ VELOCIDAD AUMENTADA
+        </div>
+      )}
+
       {duel && (
         <DuelModal
           question={duel.question} opponentName={duel.opponentName}
@@ -364,12 +430,15 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
       <Canvas shadows camera={{ position: [0, 20, 30], fov: 60 }}>
         <GameWorld
           sessionId={sessionId} myPlayerId={myPlayerId} roomId={roomId}
-          team={team} playerName={playerName}
+          team={team} playerName={playerName} character={character}
           remotePlayers={remotePlayers} myPos={myPos}
           myHasFlag={myHasFlag} inDuel={!!duel}
           nearFlag={nearFlag} nearBase={nearBase}
           showCelebration={showCelebration} celebrationPos={celebrationPos}
           yaw={yaw} pitch={pitch}
+          stamina={stamina} speedBoost={speedBoost}
+          onStaminaChange={setStaminaDisplay}
+          powerUps={powerUps}
         />
       </Canvas>
 
