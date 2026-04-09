@@ -3,8 +3,8 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
 export default defineConfig({
-  // base: './' es fundamental para que Electron encuentre los archivos
-  base: './', 
+  // base: './' asegura que Electron encuentre los archivos JS/CSS en la carpeta local
+  base: './',
   plugins: [
     react(),
   ],
