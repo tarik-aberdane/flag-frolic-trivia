@@ -1,24 +1,26 @@
-const { app, BrowserWindow } = require('electron');
-const path = require('path');
+import { app, BrowserWindow } from 'electron';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
     },
   });
 
-  // Intentamos cargar el archivo local que genera Vite
-  const indexPath = path.join(__dirname, 'dist', 'index.html');
-  
-  win.loadFile(indexPath).catch((err) => {
-    console.error("No se pudo cargar el archivo:", err);
-    // Si falla el archivo local, intenta cargar la web como respaldo
-    win.loadURL('https://flag-frolic-trivia.lovable.app');
-  });
+  // Esto carga el juego correctamente en producción
+  if (app.isPackaged) {
+    win.loadFile(path.join(__dirname, 'dist/index.html'));
+  } else {
+    win.loadURL('http://localhost:5173');
+  }
 }
 
 app.whenReady().then(() => {
