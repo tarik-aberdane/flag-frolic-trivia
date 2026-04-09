@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Trivia de banderas multijugador",
   "author": "Tarik",
-  "main": "main.js",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
