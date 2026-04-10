@@ -60,4 +60,4 @@ export const OBSTACLES: Obstacle[] = [
   { x: 500, y: 300, w: 80, h: 20 },
 ];
 
-export const GAME_DURATION = 300; // 5 minutes
+export const GAME_DURATION = 600; // 10 minutes

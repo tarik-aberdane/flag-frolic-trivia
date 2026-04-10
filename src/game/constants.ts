@@ -4,9 +4,9 @@ export const HALF_MAP = MAP_SIZE / 2;
 export const PLAYER_SPEED = 0.15;
 export const PLAYER_RADIUS = 1.5;
 export const FLAG_RADIUS = 2;
-export const CAPTURE_DISTANCE = 4;
-export const TAG_DISTANCE = 5;
-export const GAME_DURATION = 300; // 5 minutes
+export const CAPTURE_DISTANCE = 7;  // Increased hitbox for flag pickup/delivery
+export const TAG_DISTANCE = 6;     // Increased duel trigger range
+export const GAME_DURATION = 600;  // 10 minutes
 export const BROADCAST_INTERVAL = 50; // ms between position broadcasts (20 updates/sec)
 
 // Base positions
