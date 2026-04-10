@@ -280,8 +280,11 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
   const sendToBase = useCallback(() => {
     const base = team === "red" ? RED_BASE : BLUE_BASE;
     myPos.current.set(base.x + (Math.random() - 0.5) * 10, 1, base.z + (Math.random() - 0.5) * 10);
-    setMyHasFlag(false);
-  }, [team]);
+    // Drop flag and reset it to origin
+    if (myHasFlag) {
+      setMyHasFlag(false);
+    }
+  }, [team, myHasFlag]);
 
   // Game logic loop
   useEffect(() => {
@@ -293,8 +296,8 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
 
       const distToFlag = Math.sqrt((pos.x - enemyFlagPos.x) ** 2 + (pos.z - enemyFlagPos.z) ** 2);
       const distToBase = Math.sqrt((pos.x - myBase.x) ** 2 + (pos.z - myBase.z) ** 2);
-      setNearFlag(distToFlag < CAPTURE_DISTANCE + 2 && !myHasFlag);
-      setNearBase(distToBase < CAPTURE_DISTANCE + 2 && myHasFlag);
+      setNearFlag(distToFlag < CAPTURE_DISTANCE + 4 && !myHasFlag);
+      setNearBase(distToBase < CAPTURE_DISTANCE + 4 && myHasFlag);
 
       // Flag pickup
       if (!myHasFlag && distToFlag < CAPTURE_DISTANCE && ePressed) {
@@ -339,13 +342,14 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         }
       }
 
-      // Duel detection
+      // Duel detection - check both territories (attacker in enemy territory gets challenged)
       const inEnemyTerritory = team === "red" ? pos.x > 0 : pos.x < 0;
       if (inEnemyTerritory && !duel) {
         for (const enemy of remotePlayers) {
           if (enemy.team === team || enemy.is_frozen) continue;
           const d = Math.sqrt((pos.x - enemy.pos.x) ** 2 + (pos.z - enemy.pos.z) ** 2);
           if (d < TAG_DISTANCE) {
+            // Always trigger duel, use session_id ordering to avoid duplicates
             if (sessionId < enemy.session_id) {
               const q = getRandomQuestion();
               channelRef.current?.send({
@@ -359,6 +363,11 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         }
       }
 
+      // Duel timeout safety: if stuck in duel for 20s, auto-reset
+      if (duel && !duel.resolved) {
+        // handled by DuelModal timeLimit prop
+      }
+
       // Update sprinting state for UI
       setIsSprinting(stamina.current < character.maxStamina && stamina.current > 0);
     }, 100);
@@ -368,11 +377,23 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
   const handleDuelAnswer = useCallback((correct: boolean) => {
     channelRef.current?.send({ type: "broadcast", event: "duel_answer", payload: { answerer: sessionId, correct } });
     if (!correct) {
+      // Failed: teleport to base, drop flag, clean state
       setTimeout(() => { sendToBase(); setDuel(null); }, 1000);
     } else {
-      setTimeout(() => setDuel(null), 1500);
+      // Won: continue playing
+      setTimeout(() => setDuel(null), 1000);
     }
   }, [sessionId, sendToBase]);
+
+  // Duel timeout: if no answer in 20s, auto-lose
+  useEffect(() => {
+    if (!duel || duel.resolved) return;
+    const timeout = setTimeout(() => {
+      sendToBase();
+      setDuel(null);
+    }, 20000);
+    return () => clearTimeout(timeout);
+  }, [duel, sendToBase]);
 
   const handleLeave = useCallback(() => {
     supabase.from("room_players").delete().eq("id", myPlayerId).then(() => {});
