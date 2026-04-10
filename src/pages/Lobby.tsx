@@ -25,6 +25,8 @@ export default function LobbyPage() {
   const [loading, setLoading] = useState(false);
   const [selectedChar, setSelectedChar] = useState(() => localStorage.getItem("ctf_char") || "soldier");
   const [selectedMap, setSelectedMap] = useState("arena-classic");
+  const [selectedTeam, setSelectedTeam] = useState<"red" | "blue" | null>(null);
+  const [pendingRoomId, setPendingRoomId] = useState<string | null>(null);
   const [sessionId] = useState(() => {
     const existing = localStorage.getItem("ctf_session");
     if (existing) return existing;
@@ -73,48 +75,79 @@ export default function LobbyPage() {
       .single();
 
     if (room && !error) {
-      await joinRoom(room.id);
+      // Show team selection
+      setPendingRoomId(room.id);
     }
     setLoading(false);
   }
 
-  async function joinRoom(roomId: string) {
+  function requestJoinRoom(roomId: string) {
     if (!playerName.trim()) return;
+    setPendingRoomId(roomId);
+    setSelectedTeam(null);
+  }
+
+  async function confirmJoinWithTeam(team: "red" | "blue") {
+    if (!pendingRoomId || !playerName.trim()) return;
     setLoading(true);
     localStorage.setItem("ctf_name", playerName);
     localStorage.setItem("ctf_char", selectedChar);
-
-    const { data: existingPlayers } = await supabase
-      .from("room_players")
-      .select("team")
-      .eq("room_id", roomId);
-
-    const redCount = existingPlayers?.filter(p => p.team === "red").length || 0;
-    const blueCount = existingPlayers?.filter(p => p.team === "blue").length || 0;
-    const team = redCount <= blueCount ? "red" : "blue";
 
     await supabase.from("room_players").delete().eq("session_id", sessionId);
 
     const { data: player, error } = await supabase
       .from("room_players")
-      .insert({ room_id: roomId, player_name: playerName.trim(), session_id: sessionId, team })
+      .insert({ room_id: pendingRoomId, player_name: playerName.trim(), session_id: sessionId, team })
       .select()
       .single();
 
     if (player && !error) {
-      navigate(`/game/${roomId}?playerId=${player.id}&team=${team}&name=${encodeURIComponent(playerName.trim())}&session=${sessionId}&char=${selectedChar}&map=${selectedMap}`);
+      navigate(`/game/${pendingRoomId}?playerId=${player.id}&team=${team}&name=${encodeURIComponent(playerName.trim())}&session=${sessionId}&char=${selectedChar}&map=${selectedMap}`);
     }
     setLoading(false);
+    setPendingRoomId(null);
+    setSelectedTeam(null);
   }
 
   async function joinByCode() {
     if (!joinCode.trim() || !playerName.trim()) return;
     const { data } = await supabase.from("game_rooms").select("id").eq("code", joinCode.trim().toLowerCase()).single();
-    if (data) await joinRoom(data.id);
+    if (data) requestJoinRoom(data.id);
   }
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Team selection modal */}
+      {pendingRoomId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-md">
+          <div className="w-full max-w-md mx-4 p-8 rounded-xl bg-card border border-border shadow-2xl text-center">
+            <h2 className="font-pixel text-xl text-accent mb-2">ELIGE TU EQUIPO</h2>
+            <p className="text-muted-foreground mb-6 text-sm">Debes elegir equipo antes de entrar a la partida</p>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <button
+                onClick={() => confirmJoinWithTeam("red")}
+                disabled={loading}
+                className="p-6 rounded-xl border-2 border-red-500/40 bg-red-500/10 hover:bg-red-500/20 hover:border-red-500 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <div className="text-4xl mb-2">🔴</div>
+                <div className="font-pixel text-red-400 text-sm">EQUIPO ROJO</div>
+              </button>
+              <button
+                onClick={() => confirmJoinWithTeam("blue")}
+                disabled={loading}
+                className="p-6 rounded-xl border-2 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 hover:border-blue-500 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <div className="text-4xl mb-2">🔵</div>
+                <div className="font-pixel text-blue-400 text-sm">EQUIPO AZUL</div>
+              </button>
+            </div>
+            <button onClick={() => setPendingRoomId(null)} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="text-center mb-8">
           <h1 className="font-pixel text-3xl text-accent mb-2">⚑ ATRAPAFLAG SMX</h1>
@@ -206,7 +239,7 @@ export default function LobbyPage() {
                       </span>
                     </div>
                   </div>
-                  <button onClick={() => joinRoom(room.id)}
+                  <button onClick={() => requestJoinRoom(room.id)}
                     disabled={loading || !playerName.trim() || (room.playerCount || 0) >= room.max_players}
                     className="px-5 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm disabled:opacity-50 active:scale-[0.97] transition-transform">
                     Unirse
