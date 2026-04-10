@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import { Html } from "@react-three/drei";
 import * as THREE from "three";
 
 interface PlayerMeshProps {
@@ -15,7 +16,6 @@ export default function PlayerMesh({ position, team, isMe, hasFlag, playerName, 
   const meshRef = useRef<THREE.Mesh>(null);
   const targetPos = useRef(new THREE.Vector3(...position));
 
-  // Smoothly interpolate to target position for remote players
   useFrame(() => {
     if (!meshRef.current) return;
     targetPos.current.set(...position);
@@ -32,7 +32,6 @@ export default function PlayerMesh({ position, team, isMe, hasFlag, playerName, 
   return (
     <group>
       <mesh ref={meshRef} position={position} castShadow>
-        {/* Body */}
         <capsuleGeometry args={[0.8, 1.2, 8, 16]} />
         <meshStandardMaterial
           color={color}
@@ -41,16 +40,30 @@ export default function PlayerMesh({ position, team, isMe, hasFlag, playerName, 
           roughness={0.4}
           metalness={0.2}
         />
-        
-        {/* Flag indicator */}
+
+        {/* Name label above player */}
+        <Html position={[0, hasFlag ? 3.2 : 2.4, 0]} center distanceFactor={15} sprite>
+          <div style={{
+            color: "white",
+            fontSize: "13px",
+            fontWeight: 700,
+            textAlign: "center",
+            textShadow: "0 0 4px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.7)",
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+            userSelect: "none",
+          }}>
+            {playerName}
+          </div>
+        </Html>
+
         {hasFlag && (
           <mesh position={[0, 2, 0]}>
             <coneGeometry args={[0.4, 0.8, 4]} />
             <meshStandardMaterial color="#fbbf24" emissive="#ff9900" emissiveIntensity={0.5} />
           </mesh>
         )}
-        
-        {/* Frozen indicator */}
+
         {isFrozen && (
           <mesh position={[0, 0, 0]}>
             <sphereGeometry args={[1.2, 8, 8]} />
