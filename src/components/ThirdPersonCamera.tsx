@@ -9,19 +9,20 @@ interface ThirdPersonCameraProps {
   headBob?: React.MutableRefObject<number>;
 }
 
-// Camera tuning
 const CAM_DISTANCE = 16;
 const CAM_MIN_DISTANCE = 3;
-const SHOULDER_OFFSET = 2; // slight right offset for shoulder cam
-const HEIGHT_OFFSET = 3; // look-at point above player feet
-const CAM_LERP = 0.1;
-const LOOK_LERP = 0.14;
+const SHOULDER_OFFSET = 2;
+const HEIGHT_OFFSET = 3;
+const CAM_LERP = 0.12;
+const LOOK_LERP = 0.16;
 
-// Pitch limits in radians: -40° to 80°
-const PITCH_MIN = -40 * (Math.PI / 180); // looking up
-const PITCH_MAX = 80 * (Math.PI / 180);  // looking down
+// Pitch limits: prevent camera from going below ground
+const PITCH_MIN = -30 * (Math.PI / 180); // looking up (less extreme)
+const PITCH_MAX = 70 * (Math.PI / 180);  // looking down (clamped to avoid ground)
 
-// Raycaster for wall collision
+// Minimum camera height above ground
+const MIN_CAM_Y = 1.5;
+
 const raycaster = new THREE.Raycaster();
 const rayDir = new THREE.Vector3();
 
@@ -31,7 +32,13 @@ export default function ThirdPersonCamera({ target, yaw, pitch, headBob }: Third
   const smoothLook = useRef(new THREE.Vector3());
   const initialized = useRef(false);
 
+  // Set near/far clipping planes once
   useFrame(() => {
+    // Adjust clipping planes for better rendering
+    camera.near = 0.5;
+    camera.far = 500;
+    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+
     const t = target.current;
     const y = yaw.current;
     const p = pitch.current;
@@ -40,18 +47,15 @@ export default function ThirdPersonCamera({ target, yaw, pitch, headBob }: Third
     const clampedPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, p));
     pitch.current = clampedPitch;
 
-    // Look-at point (slightly above player + head bob)
     const bob = headBob?.current ?? 0;
     const lookAt = new THREE.Vector3(t.x, t.y + HEIGHT_OFFSET + bob, t.z);
 
-    // Spherical offset from look-at point
     const cosPitch = Math.cos(clampedPitch);
     const sinPitch = Math.sin(clampedPitch);
     const offsetX = Math.sin(y) * cosPitch * CAM_DISTANCE;
     const offsetY = sinPitch * CAM_DISTANCE;
     const offsetZ = Math.cos(y) * cosPitch * CAM_DISTANCE;
 
-    // Shoulder offset (perpendicular to camera direction in XZ)
     const shoulderX = Math.cos(y) * SHOULDER_OFFSET;
     const shoulderZ = -Math.sin(y) * SHOULDER_OFFSET;
 
@@ -61,12 +65,14 @@ export default function ThirdPersonCamera({ target, yaw, pitch, headBob }: Third
       lookAt.z + offsetZ + shoulderZ
     );
 
-    // ── Wall collision raycast ──
+    // Clamp camera Y to never go below ground
+    desiredPos.y = Math.max(MIN_CAM_Y, desiredPos.y);
+
+    // Wall collision raycast
     rayDir.copy(desiredPos).sub(lookAt).normalize();
     raycaster.set(lookAt, rayDir);
     raycaster.far = CAM_DISTANCE;
 
-    // Only check obstacle meshes (tagged with userData.obstacle or castShadow as proxy)
     const obstacles = scene.children.filter(c => c instanceof THREE.Mesh && c.castShadow);
     const hits = raycaster.intersectObjects(obstacles, true);
 
@@ -77,11 +83,10 @@ export default function ThirdPersonCamera({ target, yaw, pitch, headBob }: Third
 
     const actualPos = new THREE.Vector3(
       lookAt.x + rayDir.x * finalDistance + shoulderX,
-      lookAt.y + rayDir.y * finalDistance,
+      Math.max(MIN_CAM_Y, lookAt.y + rayDir.y * finalDistance),
       lookAt.z + rayDir.z * finalDistance + shoulderZ
     );
 
-    // Initialize or lerp
     if (!initialized.current) {
       smoothPos.current.copy(actualPos);
       smoothLook.current.copy(lookAt);
@@ -89,8 +94,10 @@ export default function ThirdPersonCamera({ target, yaw, pitch, headBob }: Third
     }
 
     smoothPos.current.lerp(actualPos, CAM_LERP);
+    // Final ground clamp on smooth position
+    smoothPos.current.y = Math.max(MIN_CAM_Y, smoothPos.current.y);
+    
     camera.position.copy(smoothPos.current);
-
     smoothLook.current.lerp(lookAt, LOOK_LERP);
     camera.lookAt(smoothLook.current);
   });

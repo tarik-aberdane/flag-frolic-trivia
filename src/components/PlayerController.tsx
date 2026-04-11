@@ -5,11 +5,11 @@ import { InputState } from "@/hooks/useInputHandler";
 import { HALF_MAP, OBSTACLES } from "@/game/constants";
 import { CharacterDef } from "@/game/characters";
 
-// Base physics constants (scaled by character stats)
+// Physics constants - same fluidity for walk and sprint
 const BASE_WALK = 0.18;
 const BASE_SPRINT = 0.32;
-const ACCELERATION = 0.012;
-const DECELERATION = 0.92;
+const ACCELERATION = 0.018; // Increased for snappier response
+const DECELERATION = 0.88;  // Slightly more friction for control
 const GRAVITY = -0.025;
 const JUMP_FORCE = 0.38;
 const FALL_MULTIPLIER = 1.8;
@@ -24,7 +24,7 @@ interface PlayerControllerProps {
   disabled: boolean;
   character: CharacterDef;
   stamina: React.MutableRefObject<number>;
-  speedBoost: React.MutableRefObject<number>; // multiplier, 1.0 = no boost
+  speedBoost: React.MutableRefObject<number>;
   onHeadBob?: (bob: number) => void;
   onStaminaChange?: (val: number) => void;
 }
@@ -54,7 +54,7 @@ export default function PlayerController({
     const k = keys.current;
     const angle = yaw.current;
 
-    // Stamina management
+    // Stamina: SHIFT only drains stamina for speed boost, movement system is identical
     const canSprint = k.sprint && stamina.current > 0;
     if (canSprint) {
       stamina.current = Math.max(0, stamina.current - character.staminaDrain * dt);
@@ -63,7 +63,7 @@ export default function PlayerController({
     }
     onStaminaChange?.(stamina.current);
 
-    // Movement direction (camera-relative)
+    // Movement direction (camera-relative) - same system for walk and sprint
     let inputX = 0, inputZ = 0;
     if (k.forward) { inputX -= Math.sin(angle); inputZ -= Math.cos(angle); }
     if (k.backward) { inputX += Math.sin(angle); inputZ += Math.cos(angle); }
@@ -72,23 +72,26 @@ export default function PlayerController({
 
     const hasInput = inputX !== 0 || inputZ !== 0;
 
-    // Calculate speed with character stats and power-up boost
+    // Speed: walk and sprint use the SAME movement system, only speed differs
     const walkSpeed = BASE_WALK * character.walkSpeed * speedBoost.current;
     const sprintSpeed = BASE_SPRINT * character.sprintSpeed * speedBoost.current;
     const targetSpeed = canSprint ? sprintSpeed : walkSpeed;
+
+    // Unified acceleration for both walk and sprint
+    const accel = ACCELERATION;
 
     if (hasInput) {
       const len = Math.sqrt(inputX * inputX + inputZ * inputZ);
       inputX /= len; inputZ /= len;
 
-      velocity.current.x += (inputX * targetSpeed - velocity.current.x) * ACCELERATION * dt * 60;
-      velocity.current.y += (inputZ * targetSpeed - velocity.current.y) * ACCELERATION * dt * 60;
+      velocity.current.x += (inputX * targetSpeed - velocity.current.x) * accel * dt * 60;
+      velocity.current.y += (inputZ * targetSpeed - velocity.current.y) * accel * dt * 60;
     } else {
       velocity.current.x *= Math.pow(DECELERATION, dt * 60);
       velocity.current.y *= Math.pow(DECELERATION, dt * 60);
     }
 
-    // Apply horizontal movement with wall sliding
+    // Horizontal movement with wall sliding
     const nx = myPos.current.x + velocity.current.x * dt * 60;
     const nz = myPos.current.z + velocity.current.y * dt * 60;
     const clampedX = Math.max(-HALF_MAP + 2, Math.min(HALF_MAP - 2, nx));
@@ -122,7 +125,7 @@ export default function PlayerController({
       }
     }
 
-    // Head bob
+    // Head bob - same for walk and sprint, only speed differs
     const speed = Math.sqrt(velocity.current.x ** 2 + velocity.current.y ** 2);
     if (hasInput && isGrounded.current && speed > 0.02) {
       bobPhase.current += dt * HEAD_BOB_SPEED * (canSprint ? 1.4 : 1);

@@ -33,9 +33,10 @@ interface RemotePlayer {
   player_name: string;
   team: "red" | "blue";
   pos: THREE.Vector3;
-  targetPos: THREE.Vector3; // for interpolation
+  targetPos: THREE.Vector3;
   has_flag: boolean;
   is_frozen: boolean;
+  lastUpdate: number; // timestamp for stale detection
 }
 
 interface DuelState {
@@ -82,10 +83,11 @@ function GameWorld({
   const headBob = useRef(0);
   const onHeadBob = useCallback((bob: number) => { headBob.current = bob; }, []);
 
-  // Interpolate remote players each frame
-  useFrame(() => {
+  // Smooth interpolation for remote players each frame
+  useFrame((_, delta) => {
+    const lerpFactor = Math.min(1, delta * 10); // ~10x per second smoothing
     remotePlayers.forEach(p => {
-      p.pos.lerp(p.targetPos, 0.1);
+      p.pos.lerp(p.targetPos, lerpFactor);
     });
   });
 
@@ -128,7 +130,6 @@ function GameWorld({
         </mesh>
       )}
 
-      {/* Power-ups */}
       {powerUps.map(pu => (
         <PowerUp3D key={pu.id} position={pu.position} type={pu.type} active={pu.active} />
       ))}
@@ -151,28 +152,35 @@ function GameWorld({
   );
 }
 
-/* ─── Broadcast component ─── */
+/* ─── Broadcast: only sends position, no movement logic ─── */
 function BroadcastLoop({ myPos, sessionId, myPlayerId, playerName, team, roomId, myHasFlag, inDuel }: {
   myPos: React.MutableRefObject<THREE.Vector3>;
   sessionId: string; myPlayerId: string; playerName: string;
   team: "red" | "blue"; roomId: string; myHasFlag: boolean; inDuel: boolean;
 }) {
   const lastBroadcast = useRef(0);
+  const lastPos = useRef(new THREE.Vector3());
 
   useFrame(() => {
     if (inDuel) return;
     const now = Date.now();
-    if (now - lastBroadcast.current > BROADCAST_INTERVAL) {
-      lastBroadcast.current = now;
-      supabase.channel(`room:${roomId}`).send({
-        type: "broadcast", event: "player_move",
-        payload: {
-          session_id: sessionId, player_id: myPlayerId, player_name: playerName,
-          team, x: myPos.current.x, y: myPos.current.y, z: myPos.current.z,
-          has_flag: myHasFlag, is_frozen: false,
-        },
-      });
-    }
+    if (now - lastBroadcast.current < BROADCAST_INTERVAL) return;
+
+    // Only broadcast if position changed (reduces unnecessary network traffic)
+    const moved = lastPos.current.distanceTo(myPos.current) > 0.05;
+    if (!moved && now - lastBroadcast.current < 1000) return; // heartbeat every 1s even if idle
+
+    lastBroadcast.current = now;
+    lastPos.current.copy(myPos.current);
+
+    supabase.channel(`room:${roomId}`).send({
+      type: "broadcast", event: "player_move",
+      payload: {
+        session_id: sessionId, player_id: myPlayerId, player_name: playerName,
+        team, x: myPos.current.x, y: myPos.current.y, z: myPos.current.z,
+        has_flag: myHasFlag, is_frozen: false, t: now,
+      },
+    });
   });
 
   return null;
@@ -203,6 +211,20 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const { yaw, pitch, requestLock } = useMouseLook();
 
+  // Server time sync: fetch room started_at to calculate remaining time
+  useEffect(() => {
+    const syncTime = async () => {
+      const { data } = await supabase.from("game_rooms").select("started_at, game_duration").eq("id", roomId).single();
+      if (data?.started_at) {
+        const elapsed = Math.floor((Date.now() - new Date(data.started_at).getTime()) / 1000);
+        const remaining = Math.max(0, (data.game_duration || GAME_DURATION) - elapsed);
+        setTimeLeft(remaining);
+        if (remaining <= 0) setGameOver(true);
+      }
+    };
+    syncTime();
+  }, [roomId]);
+
   // E key handler
   useEffect(() => {
     const down = (e: KeyboardEvent) => { if (e.key.toLowerCase() === "e") setEPressed(true); };
@@ -212,11 +234,22 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, []);
 
-  // Timer
+  // Global timer synced via broadcast
   useEffect(() => {
     if (gameOver) return;
     const iv = setInterval(() => {
-      setTimeLeft(prev => { if (prev <= 1) { setGameOver(true); return 0; } return prev - 1; });
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          setGameOver(true);
+          // Broadcast game over to all players
+          channelRef.current?.send({
+            type: "broadcast", event: "game_over",
+            payload: { reason: "time" },
+          });
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
     return () => clearInterval(iv);
   }, [gameOver]);
@@ -231,15 +264,16 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         setRemotePlayers(prev => {
           const idx = prev.findIndex(p => p.session_id === payload.session_id);
           const targetPos = new THREE.Vector3(payload.x, payload.y, payload.z);
+          const now = Date.now();
           if (idx >= 0) {
             const next = [...prev];
-            next[idx] = { ...next[idx], targetPos, has_flag: payload.has_flag, is_frozen: payload.is_frozen || false };
+            next[idx] = { ...next[idx], targetPos, has_flag: payload.has_flag, is_frozen: payload.is_frozen || false, lastUpdate: now };
             return next;
           }
           return [...prev, {
             id: payload.player_id, session_id: payload.session_id,
             player_name: payload.player_name, team: payload.team,
-            pos: targetPos.clone(), targetPos,
+            pos: targetPos.clone(), targetPos, lastUpdate: now,
             has_flag: payload.has_flag, is_frozen: payload.is_frozen || false,
           }];
         });
@@ -249,6 +283,16 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
       })
       .on("broadcast", { event: "player_leave" }, ({ payload }) => {
         setRemotePlayers(prev => prev.filter(p => p.session_id !== payload.session_id));
+      })
+      .on("broadcast", { event: "game_over" }, () => {
+        setGameOver(true);
+        setTimeLeft(0);
+      })
+      .on("broadcast", { event: "time_sync" }, ({ payload }) => {
+        // Accept server time sync from room host
+        if (payload.timeLeft !== undefined) {
+          setTimeLeft(payload.timeLeft);
+        }
       })
       .on("broadcast", { event: "duel_start" }, ({ payload }) => {
         if (payload.player_a === sessionId || payload.player_b === sessionId) {
@@ -277,19 +321,29 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
     };
   }, [roomId, sessionId]);
 
+  // Clean stale remote players (no update in 5s)
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const now = Date.now();
+      setRemotePlayers(prev => prev.filter(p => now - p.lastUpdate < 5000));
+    }, 2000);
+    return () => clearInterval(iv);
+  }, []);
+
   const sendToBase = useCallback(() => {
     const base = team === "red" ? RED_BASE : BLUE_BASE;
     myPos.current.set(base.x + (Math.random() - 0.5) * 10, 1, base.z + (Math.random() - 0.5) * 10);
-    // Drop flag and reset it to origin
     if (myHasFlag) {
       setMyHasFlag(false);
     }
   }, [team, myHasFlag]);
 
-  // Game logic loop
+  // Game logic loop - runs at 60fps via requestAnimationFrame for instant collision detection
   useEffect(() => {
     if (gameOver || duel) return;
-    const iv = setInterval(() => {
+    let rafId: number;
+
+    const gameLoop = () => {
       const pos = myPos.current;
       const enemyFlagPos = team === "red" ? BLUE_FLAG_POS : RED_FLAG_POS;
       const myBase = team === "red" ? RED_BASE : BLUE_BASE;
@@ -334,7 +388,6 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         speedBoost.current = SPEED_BOOST_MULTIPLIER;
         setTimeout(() => { speedBoost.current = 1.0; }, SPEED_BOOST_DURATION);
       } else {
-        // Still check respawns
         const now = Date.now();
         const hasRespawn = powerUps.some(pu => !pu.active && pu.respawnAt > 0 && now >= pu.respawnAt);
         if (hasRespawn) {
@@ -342,50 +395,46 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
         }
       }
 
-      // Duel detection - check both territories (attacker in enemy territory gets challenged)
+      // Instant client-side duel detection
       const inEnemyTerritory = team === "red" ? pos.x > 0 : pos.x < 0;
       if (inEnemyTerritory && !duel) {
         for (const enemy of remotePlayers) {
           if (enemy.team === team || enemy.is_frozen) continue;
           const d = Math.sqrt((pos.x - enemy.pos.x) ** 2 + (pos.z - enemy.pos.z) ** 2);
           if (d < TAG_DISTANCE) {
-            // Always trigger duel, use session_id ordering to avoid duplicates
             if (sessionId < enemy.session_id) {
               const q = getRandomQuestion();
+              // Immediately show duel locally (no server round-trip)
+              setDuel({ question: q, opponentName: enemy.player_name, opponentSession: enemy.session_id, resolved: false });
+              // Then broadcast to opponent
               channelRef.current?.send({
                 type: "broadcast", event: "duel_start",
                 payload: { player_a: sessionId, player_b: enemy.session_id, name_a: playerName, name_b: enemy.player_name, question: q },
               });
-              setDuel({ question: q, opponentName: enemy.player_name, opponentSession: enemy.session_id, resolved: false });
             }
             break;
           }
         }
       }
 
-      // Duel timeout safety: if stuck in duel for 20s, auto-reset
-      if (duel && !duel.resolved) {
-        // handled by DuelModal timeLimit prop
-      }
-
-      // Update sprinting state for UI
       setIsSprinting(stamina.current < character.maxStamina && stamina.current > 0);
-    }, 100);
-    return () => clearInterval(iv);
+      rafId = requestAnimationFrame(gameLoop);
+    };
+
+    rafId = requestAnimationFrame(gameLoop);
+    return () => cancelAnimationFrame(rafId);
   }, [myHasFlag, remotePlayers, scores, team, roomId, gameOver, duel, ePressed, sessionId, playerName, powerUps, character]);
 
   const handleDuelAnswer = useCallback((correct: boolean) => {
     channelRef.current?.send({ type: "broadcast", event: "duel_answer", payload: { answerer: sessionId, correct } });
     if (!correct) {
-      // Failed: teleport to base, drop flag, clean state
       setTimeout(() => { sendToBase(); setDuel(null); }, 1000);
     } else {
-      // Won: continue playing
       setTimeout(() => setDuel(null), 1000);
     }
   }, [sessionId, sendToBase]);
 
-  // Duel timeout: if no answer in 20s, auto-lose
+  // Duel timeout: auto-lose after 20s
   useEffect(() => {
     if (!duel || duel.resolved) return;
     const timeout = setTimeout(() => {
@@ -448,7 +497,7 @@ export default function GameScene({ sessionId, myPlayerId, roomId, team, playerN
       <ProximityPrompt label="Entregar bandera en base" visible={nearBase && myHasFlag && !duel} />
       <VictoryOverlay show={showVictoryOverlay} team={team} />
 
-      <Canvas shadows camera={{ position: [0, 20, 30], fov: 60 }}>
+      <Canvas shadows camera={{ position: [0, 20, 30], fov: 60, near: 0.5, far: 500 }}>
         <GameWorld
           sessionId={sessionId} myPlayerId={myPlayerId} roomId={roomId}
           team={team} playerName={playerName} character={character}
