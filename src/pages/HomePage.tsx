@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import InstallButton from "@/components/InstallButton";
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -24,6 +25,7 @@ export default function HomePage() {
           >
             🎮 JUGAR
           </button>
+          <InstallButton />
         </div>
 
         <div className="mt-8 grid grid-cols-3 gap-4 text-center">
