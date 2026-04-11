@@ -2,7 +2,7 @@
   "name": "flag-frolic-trivia",
   "version": "1.0.0",
   "type": "module",
-  "main": "main.js",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
